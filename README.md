@@ -60,4 +60,57 @@ export default HeartOfTheMatter;
 The way we are going to solve this problem is by declaring all of our gestures and animations on the UI thread. So that even if the JavaScript thread is busy all the animations can run at 60fps even on low-end devices and wo we are not going to use the default animated API which relies on communication between the JavaScript thread and the UI thread, but on **Reanimated** and **React Native Gesture Handler**, which are dedicated on building declarative gestures and animations.
 
 ```js
+import React from "react";
+import { Animated, PanResponder, StyleSheet, View } from "react-native";
+import useMakeJSThreadBusy from "./useMakeJSThreadBusy";
+import {
+  useAnimatedGestureHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
+import { PanGestureHandler } from "react-native-gesture-handler";
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  ball: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "red",
+  },
+});
+
+const HeartOfTheMatter = () => {
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+
+  const onGestureEvent = useAnimatedGestureHandler({
+    onStart: (_, ctx) => {
+      ctx.x = x.value;
+      ctx.y = y.value;
+    },
+    onActive: ({ translationX, translationY }, ctx) => {
+      x.value = ctx.x + translationX;
+      y.value = ctx.y + translationY;
+    },
+  });
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.value }, { translateY: y.value }],
+  }));
+  // useMakeJSThreadBusy(true, 1000);
+  return (
+    <View style={styles.container}>
+      <PanGestureHandler onGestureEvent={onGestureEvent}>
+        <Animated.View style={[styles.ball, style]} />
+      </PanGestureHandler>
+    </View>
+  );
+};
+export default HeartOfTheMatter;
 ```
+
+In this case, it's being done declaratively using reanimated. So evenif javascript thread is busy, the animation will run at 60fps.

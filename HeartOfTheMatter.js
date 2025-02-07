@@ -1,6 +1,12 @@
 import React from "react";
-import { Animated, PanResponder, StyleSheet, View } from "react-native";
+import { Animated, StyleSheet, View } from "react-native";
 import useMakeJSThreadBusy from "./useMakeJSThreadBusy";
+import {
+  useAnimatedGestureHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
+import { PanGestureHandler } from "react-native-gesture-handler";
 
 const styles = StyleSheet.create({
   container: {
@@ -17,31 +23,28 @@ const styles = StyleSheet.create({
 });
 
 const HeartOfTheMatter = () => {
-  const position = new Animated.ValueXY({ x: 0, y: 0 });
-  const panResponder = PanResponder.create({
-    onMoveShouldSetPanResponderCapture: () => true,
-    onPanResponderGrant: () => {
-      position.setOffset({
-        x: position.x._value,
-        y: position.y._value,
-      });
-      position.setValue({ x: 0, y: 0 });
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
+
+  const onGestureEvent = useAnimatedGestureHandler({
+    onStart: (_, ctx) => {
+      ctx.x = x.value;
+      ctx.y = y.value;
     },
-    onPanResponderMove: Animated.event(
-      [null, { dx: position.x, dy: position.y }],
-      { useNativeDriver: false }
-    ),
-    onPanResponderRelease: () => {
-      position.flattenOffset();
+    onActive: ({ translationX, translationY }, ctx) => {
+      x.value = ctx.x + translationX;
+      y.value = ctx.y + translationY;
     },
   });
-  useMakeJSThreadBusy(true, 1000);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ translateX: x.value }, { translateY: y.value }],
+  }));
+  // useMakeJSThreadBusy(true, 1000);
   return (
     <View style={styles.container}>
-      <Animated.View
-        style={[styles.ball, position.getLayout()]}
-        {...panResponder.panHandlers}
-      />
+      <PanGestureHandler onGestureEvent={onGestureEvent}>
+        <Animated.View style={[styles.ball, style]} />
+      </PanGestureHandler>
     </View>
   );
 };
