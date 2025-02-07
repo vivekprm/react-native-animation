@@ -3,6 +3,8 @@ The key to success is to avoid frame drops, which means that we have only 16ms t
 
 # Simplified Architecture
 
+<img width="804" alt="Screenshot 2025-02-07 at 3 42 02 PM" src="https://github.com/user-attachments/assets/0cac0e1e-f5ab-4352-ab49-9d0d5d56f6bf" />
+
 We have the JavaScript thread, that runs the react code and the native thread that interacts with all the native APIs of the device. They talk to each other via asynchronous JSON messages.
 So If the JavaScript thread is busy rendering your components or dealing with API calls, you are likely to miss this 16ms timeframe within your animation, or if your animation relies on messeges being exchanged between the native thread and the JavaScript thread, you are also likey to drop frames because the messegs won't be exchanged within that 16ms window.
 
@@ -218,6 +220,8 @@ We use the .value property so that we keep the same reference of an animation va
 **Animation Values** are named shared values. They are available on both the JavaScript thread and the UI thread.
 
 The API provides us with 6 hooks to create values, listen to gesture events, animate properties and style, as well as to create side effects.
+
+<img width="624" alt="Screenshot 2025-02-07 at 7 33 25 PM" src="https://github.com/user-attachments/assets/bb2c10ab-68e3-4a79-a062-f54d5a4a7568" />
 
 Finally, the **Babel Plugin** is responsible to package **Animation Worklets** so that they can be executed on the UI thread and is capable of capturing the variables from the React code. If the variable is a function, you can invoke it using **runOnJS** and symmetrically, if you want to execute an **Animation Worklet** from the JavaScript thread from the react code, you can use **runOnUI**.
 
