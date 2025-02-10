@@ -261,5 +261,270 @@ By using **worklet** directive under sayHello function, we are inicating to babe
 
 In this case, we are invoking the **sayHello** function on the UI thread and passing the string "world" as an argument.
 
+# Pan Gesture
+Let's build our first gesture.
 
+When we are building gestures or animations, we need to do three things:
+- You need to create some animation values.
+- You need to bind gestures to animation values. So you need to have some sort of communication between Gesture Handlers and animation values.
+- You need to assign animation values to properties of React components. Can be animated proprties in the case of SVG for instance or animated style for views.
 
+In this example we are going to use all of these hooks, so we are going to create shared values, x and y. useDerivedValue we are not going to use but **useDerivedValue** created animation values based on some worklet computations. So if your animation value depends on some sort of computation, some sort of may be conversion or other animation values, you can use **useDerivedValue**.
+
+To bind animation values to gestures we use **useAnimatedGestureHandler**. This provides a really cool API that we will take a look at.
+
+And finally we need to bind styles and properties from animation values to components. With **useAnimatedGestureHandler** we get different callbacks E.g. 
+```js
+onActive: (event, ctx)
+```
+
+Takes two parameters:
+- event: contains all the values of our Gesture Handler. 
+    - In the case of **PanGestureHandler**, you get the translationX, translationY, velocityX, velocityY, x, y, absoluteX, absoulteY.
+    - If you have to use **PinGestureHandler**, you get scale, focalX, focalY and so on.
+- ctx: Is a global object that is shared between each gesture event that you can use to make your gesture stateful. Since you can assign states to the subject, for each event you can remember things. So you can make your gesture stateful. Here we are going to use it to remember when we started the gesture again, where we were at the last position.
+
+```js
+const Gesture = ({ width, height }) => {
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const boundX = width - CARD_WIDTH;
+  const boundY = height - CARD_HEIGHT;
+  const onGestureEvent = useAnimatedGestureHandler({
+    onStart: (event, ctx) => {
+      ctx.offsetX = translateX.value;
+      ctx.offsetY = translateY.value;
+    },
+    onActive: (event, ctx) => {
+      translateX.value = clamp(ctx.offsetX + event.translationX, 0, boundX);
+      translateY.value = clamp(ctx.offsetY + event.translationY, 0, boundY);
+    },
+    onEnd: (event, ctx) => {
+      translateX.value = withDecay({
+        velocity: event.velocityX,
+        clamp: [0, boundX],
+      });
+      translateY.value = withDecay({
+        velocity: event.velocityY,
+        clamp: [0, boundY],
+      });
+    },
+  });
+  const style = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateX: translateX.value },
+        { translateY: translateY.value },
+      ],
+    };
+  });
+  return (
+    <View>
+      <PanGestureHandler {...{ onGestureEvent }}>
+        <Animated.View {...{ style }}>
+          <Card card={Cards.Card1} />
+        </Animated.View>
+      </PanGestureHandler>
+    </View>
+  );
+};
+export default Gesture;
+```
+
+# Transitions
+Transitions are the easiest way to animate React Native components.
+
+Transition table
+You can ease your transition from a change in the React state and here you are going to use **useTiming** or **useSpring**. Or you can trnasition on the change of animation value and for that you are going to use **withTiming** or **withSpring**.
+
+So this is great to really add some nice animations when your react state change but also transitioning on any animation value can be convenient to decouple animation problems.
+
+So it's a very powerful tool because you can write your reactions and animations in a discrete using discrete states and then do the transition.
+
+These functions **withTiming** and **withSpring** are shipped with Reanimated tool, so you get it by default.
+These functions **useTiming** and **useSpring** are shipped with Redash. So you could directly use these functions and be done with it.
+
+```js
+export const Transitions = () => {
+  const [toggled, setToggle] = useState(false);
+  return (
+    <View style={styles.container}>
+      {cards.slice(0, 3).map((card, index) => (
+        <AnimatedCard key={card} {...{ index, card, toggled }} />
+      ))}
+      <Button
+        label={toggled ? "Reset" : "Start"}
+        primary
+        onPress={() => setToggle((prev) => !prev)}
+      />
+    </View>
+  );
+};
+```
+
+We have state toggled that we pass to AnimatedCard as parameter to decide the transformation. So if we look at ```AnimatedCard```.
+
+```js
+export const AnimatedCard = ({ card, toggled, index }) => {
+  const rotate = toggled ? ((index - 1) * Math.PI)/6 : 0;
+  return (
+    <View key={card} style={[styles.overlay, {
+      transform: [
+        { translateX: origin },
+        { rotate: `${rotate}rad` },
+        { translateX: -origin },
+      ],
+    }]}>
+      <Card {...{ card }} />
+    </View>
+  );
+};
+```
+
+If toggled is true we calculate the rotation and transform. So if:
+- If index is 0 we rotate to -30 degree.
+- If index is 1 we rotate to 0 degree.
+- If index is 2 we rotate to 30 degree.
+
+Now to create animation we are going to use transition and what we are going to do is create shared value that follows the react state.
+
+```js
+const isToggled = useSharedValue(false);
+useEffect(() => {
+  isToggled.value = toggled;
+}, [toggled, isToggled])
+```  
+
+Now we use ```useDerivedValue``` to create an animation value based on all the animation values
+```js
+const transition = useDerivedValue(() => {
+  return withSpring(isToggled.value);
+})
+```
+
+Now pass this ```transition``` props in place of ```toggled``` to ```AnimatedCard```.
+```js
+export const Transitions = () => {
+  const [toggled, setToggle] = useState(false);
+  const isToggled = useSharedValue(false);
+  useEffect(() => {
+    isToggled.value = toggled;
+  }, [toggled, isToggled])
+  const transition = useDerivedValue(() => {
+    return withSpring(isToggled.value);
+  })
+  return (
+    <View style={styles.container}>
+      {cards.slice(0, 3).map((card, index) => (
+        <AnimatedCard key={card} {...{ index, card, transition }} />
+      ))}
+      <Button
+        label={toggled ? "Reset" : "Start"}
+        primary
+        onPress={() => setToggle((prev) => !prev)}
+      />
+    </View>
+  );
+};
+```
+
+Now in ```AnimatedCard``` in place of View use ```Animated.View``` and in place of inline trnasfrom style use computed style using ```useAnimatedStyle```.
+
+```js
+export const AnimatedCard = ({ card, transition, index }) => {
+  const style = useAnimatedStyle(() => {
+    const rotate = interpolate(transition.value, [0, 1], [0, (index - 1) * Math.PI / 6]);
+    return {
+      transform: [
+        { translateX: origin },
+        { rotate: `${rotate}rad` },
+        { translateX: -origin },
+      ],
+    }
+  });
+  return (
+    <Animated.View key={card} style={[styles.overlay, style]}>
+      <Card {...{ card }} />
+    </Animated.View>
+  );
+};
+```
+
+Now we have nice transition. When we always interpolate from 0 to 1. redash provide a function called ```mix``` and simplify it as below:
+
+```js
+const rotate = mix(transition.value, 0, (index - 1) * Math.PI / 6);
+```
+
+And in transition component use ```withTiming``` in place of ```withSpring```.
+
+We can refactor the transition into a function, so the one we are going to use from redash or we can make it a generic function as below:
+
+```js
+const useSpring = (state) => {
+  const value = useSharedValue(0);
+  useEffect(() => {
+    value.value = typeof state === "number" ? state : (state ? 1 : 0);
+  }, [state, value]);
+  return useDerivedValue(() => {
+    return withSpring(value.value);
+  })
+}
+
+export const Transitions = () => {
+  const [toggled, setToggle] = useState(false);
+  const transition = useSpring(toggled);
+  return (
+    <View style={styles.container}>
+      {cards.slice(0, 3).map((card, index) => (
+        <AnimatedCard key={card} {...{ index, card, transition }} />
+      ))}
+      <Button
+        label={toggled ? "Reset" : "Start"}
+        primary
+        onPress={() => setToggle((prev) => !prev)}
+      />
+    </View>
+  );
+};
+```
+
+Similarly we can write generic ```useTiming``` function also we can pass ```config```, we can do the same with ```useSpring```:
+```js
+const useTiming = (state, config) => {
+  const value = useSharedValue(0);
+  useEffect(() => {
+    value.value = typeof state === "number" ? state : (state ? 1 : 0);
+  }, [state, value]);
+  return useDerivedValue(() => {
+    return withTiming(value.value, config);
+  })
+}
+```
+
+So one more exercise we can do is, what if we transition on an animation value and not a state.
+So it's going to be an animation value so react doesn't know if it's toggled or not.
+
+```js
+export const Transitions = () => {
+  const toggled = useSharedValue(false);
+  const transition = useDerivedValue(() => {
+    return withSpring(toggled.value);
+  });
+  return (
+    <View style={styles.container}>
+      {cards.slice(0, 3).map((card, index) => (
+        <AnimatedCard key={card} {...{ index, card, transition }} />
+      ))}
+      <Button
+        label={toggled ? "Reset" : "Start"}
+        primary
+        onPress={() => toggled.value = !toggled.value}
+      />
+    </View>
+  );
+};
+```
+
+Now if we see button label doesn't change because react doesn't know the toggle state. 
+Building ```withSpring``` and ```withTiming``` are going to be great exercise to build manually. To really understand how reanimate works.
