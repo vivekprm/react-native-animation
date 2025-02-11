@@ -816,3 +816,35 @@ const Gesture = ({ width, height }) => {
     )
 }
 ```
+
+## Pausable/Resumable Animation
+```js
+export const withPause = (animationParam, paused) => {
+    "worklet";
+
+    return defineAnimation(() => {
+        "worklet";
+        const nextAnimation = animationParameter(animationParam);
+        const animation = (state, now) => {
+            if (paused.value) {
+                state.elapsed = now - state.lastTimestamp;
+                return false;
+            }
+            const finished = nextAnimation.animation(nextAnimation, now - state.elapsed);
+            state.current = nextAnimation.current;
+            state.lastTimestamp = now;
+            return finished;
+        }
+        const start = (state, value, now, previousAnimation) => {
+            state.elapsed = 0;
+            state.lastTimestamp = now;
+            nextAnimation.start(nextAnimation, value, now, previousAnimation);
+
+        }
+        return {
+            animation,
+            start
+        }
+    })
+}
+```

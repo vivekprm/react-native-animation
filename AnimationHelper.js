@@ -3,6 +3,14 @@ import { clamp, defineAnimation } from "react-native-reanimated";
 var state = {}
 const VELOCITY_EPS = 5;
 const deceleration = 0.997;
+
+const animationParameter = (state, animationParam) => {
+    "worklet";
+    if (typeof animationParam === "number") {
+        throw new Error("Expected animation as parameter");
+    }
+    return typeof animationParam === "function" ? animationParam() : animationParam;
+}
 export const withDecay = (initialVelocity) => {
     "worklet";
     return defineAnimation(() => {
@@ -52,6 +60,35 @@ export const withBounce = (animationParam,) => {
         }
         const start = (state, value, now, previousAnimation) => {
             nextAnimation.start(nextAnimation, value, now, previousAnimation);
+        }
+        return {
+            animation,
+            start
+        }
+    })
+}
+
+export const withPause = (animationParam, paused) => {
+    "worklet";
+
+    return defineAnimation(() => {
+        "worklet";
+        const nextAnimation = animationParameter(animationParam);
+        const animation = (state, now) => {
+            if (paused.value) {
+                state.elapsed = now - state.lastTimestamp;
+                return false;
+            }
+            const finished = nextAnimation.animation(nextAnimation, now - state.elapsed);
+            state.current = nextAnimation.current;
+            state.lastTimestamp = now;
+            return finished;
+        }
+        const start = (state, value, now, previousAnimation) => {
+            state.elapsed = 0;
+            state.lastTimestamp = now;
+            nextAnimation.start(nextAnimation, value, now, previousAnimation);
+
         }
         return {
             animation,
