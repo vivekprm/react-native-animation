@@ -660,3 +660,159 @@ export default Bubble;
 
 Now we have chat bubble with indefinite loop, now we want the animation to be pausable, resumable. So we need a shared value to tell us that animation should be paused or not.
 It remembers the point where it was paused and also remembers the direction.
+
+# Custom Animations
+Now we are going to see how to build higher order animations, we would build three animations as part of it:
+- **Decay animation** when we release the **Pan Gesture**
+  - This decay animation is provided by default in **reanimated2**.
+- **Higher Order Animation** takes another animation as parameter. It's going to be bouncing animation.
+- **PauseAnimation** that we build in ChatBubble example. But it was black box for us. So we are going to learn how to build such animations.
+
+## Decay Animation
+```js
+react-native-reanimated";
+
+var state = {}
+const VELOCITY_EPS = 5;
+const deceleration = 0.997;
+export const withDecay = (initialVelocity) => {
+    "worklet";
+    return defineAnimation(() => {
+        "worklet";
+        const animation = (state, now) => {
+            const { velocity, lastTimestamp, current } = state;
+            const dt = now - lastTimestamp;
+            const v0 = velocity / 1000;
+            const kv = Math.pow(deceleration, dt)
+            const v = v0 * kv * 1000;
+            const x = current + (v0 * (deceleration * (1 - kv))) / (1 - deceleration);
+
+            state.velocity = v;
+            state.current = x;
+            state.lastTimestamp = now;
+
+            if (Math.abs(v) < VELOCITY_EPS) {
+                return true
+            }
+            return false
+        }
+        const start = (state, current, now) => {
+            state.current = current;
+            state.velocity = initialVelocity;
+            state.lastTimestamp = now
+        }
+        return { animation, start }
+    })
+}
+```
+
+Then we can use it like below:
+```js
+const Gesture = ({ width, height }) => {
+    const boundX = width - CARD_WIDTH
+    const boundY = height - CARD_HEIGHT
+    const translateX = useSharedValue(0)
+    const translateY = useSharedValue(0)
+    const onGestureEvent = useAnimatedGestureHandler({
+        onStart: (_, ctx) => {
+            ctx.offsetX = translateX.value
+            ctx.offsetY = translateY.value
+        },
+        onActive: (event, ctx) => {
+            translateX.value = clamp(ctx.offsetX + event.translationX, 0, boundX)
+            translateY.value = clamp(ctx.offsetY + event.translationY, 0, boundY)
+        },
+        onEnd: ({ velocityX, velocityY }) => {
+            translateX.value = withDecay(velocityX);
+            translateY.value = withDecay(velocityY);
+        }
+    })
+    const style = useAnimatedStyle(() => {
+        return {
+            transform: [
+                { translateX: translateX.value },
+                { translateY: translateY.value }
+            ]
+        }
+    })
+    return (
+        <View style={styles.container}>
+            <PanGestureHandler {...{ onGestureEvent }}>
+                <Animated.View {...{ style }}>
+                    <Card card={Cards.Card1} />
+                </Animated.View>
+            </PanGestureHandler>
+        </View>
+    )
+}
+```
+
+## Higher Order Animation
+```js
+const lowerBound = 0;
+const upperBound = 0;
+export const withBounce = (animationParam,) => {
+    "worklet";
+    return defineAnimation(() => {
+        "worklet";
+        const nextAnimation = animationParameter(animationParam);
+        const animation = (state, now) => {
+            const finished = nextAnimation.animation(nextAnimation, now);
+            const { velocity, current } = nextAnimation;
+            if (velocity < 0 && current < lowerBound || velocity > 0 && current > upperBound) {
+                nextAnimation.velocity *= -0.5;
+                nextAnimation.current = clamp(current, lowerBound, upperBound);
+            }
+            state.current = current;
+            return finished;
+        }
+        const start = (state, value, now, previousAnimation) => {
+            nextAnimation.start(nextAnimation, value, now, previousAnimation);
+        }
+        return {
+            animation,
+            start
+        }
+    })
+}
+```
+Then we can use it like below:
+```js
+const Gesture = ({ width, height }) => {
+    const boundX = width - CARD_WIDTH
+    const boundY = height - CARD_HEIGHT
+    const translateX = useSharedValue(0)
+    const translateY = useSharedValue(0)
+    const onGestureEvent = useAnimatedGestureHandler({
+        onStart: (_, ctx) => {
+            ctx.offsetX = translateX.value
+            ctx.offsetY = translateY.value
+        },
+        onActive: (event, ctx) => {
+            translateX.value = clamp(ctx.offsetX + event.translationX, 0, boundX)
+            translateY.value = clamp(ctx.offsetY + event.translationY, 0, boundY)
+        },
+        onEnd: ({ velocityX, velocityY }) => {
+            translateX.value = withBounce(withDecay(velocityX), 0, boundX);
+            translateY.value = withBounce(withDecay(velocityY), onGestureEvent, boundY);
+        }
+    })
+    const style = useAnimatedStyle(() => {
+        return {
+            transform: [
+                { translateX: translateX.value },
+                { translateY: translateY.value }
+            ]
+        }
+    })
+    return (
+        <View style={styles.container}>
+            <PanGestureHandler {...{ onGestureEvent }}>
+                <Animated.View {...{ style }}>
+                    <Card card={Cards.Card1} />
+                </Animated.View>
+            </PanGestureHandler>
+        </View>
+    )
+}
+```
