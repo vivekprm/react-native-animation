@@ -528,3 +528,135 @@ export const Transitions = () => {
 
 Now if we see button label doesn't change because react doesn't know the toggle state. 
 Building ```withSpring``` and ```withTiming``` are going to be great exercise to build manually. To really understand how reanimate works.
+
+# Higher Order Animation
+In functional programming, **Higher Order Functions** are functions that can receive functions as parameters and return other functions.
+
+In reanimated2 animations are first class citizens into the library and they can also receive animations as parameters and return animations. This means composability. So for instance, considering a simple timing animation such as this one:
+
+```js
+withTiming(1)
+```
+
+Now let's say you want to repeat the animation 5 times, you are going to simply wrap the animation into another animation, ```repeat``` with the 5 iteration parameter.
+
+```js
+repeat(withTiming(1), 5)
+```
+
+And maybe you want to add some delay, you are going to do the samething using ```delay``` function:
+```js
+delay(repeat(withTiming(1), 5), 1000)
+```
+
+In reanimated1 we had an example where we could start an animation, when the animation is looping you can pause the animation at any point and resume it whenever we want.
+This example is very important because if you are able to:
+- run an animation 
+- loop the animation
+- pause/resume the animation 
+
+It means that you have developed a level of agility in dealing with animation that can take you very far and that can enable you to build complex animation.
+
+In reanimated1 building such example was non-trivial, barrier to entry was quite high. But once you could go over this barrier to entry, you had developed a level of agility which could take you very far with reanimated1. 
+
+In ```reanimated2```, if animations are truly composable this is how such an example should look like.
+
+We have timing function which goes from 0 to 1.
+```js
+withTiming(1)
+```
+
+Then we loop indefinitely on this animation, so this is what -1 means, indefinite number of interactions. Then we add the true parameter which means reverse on the next iteration. Meaning that we go from 0 to 1 then from 1 to 0 and not back from 0 to 1.
+
+```js
+repeat(withTiming(1), -1, true)
+```
+
+And then if we want animation to be pausable and resumable, we simply pass this animation as parameter to ```withPause``` function.
+
+```js
+withPause(repeat(withTiming(1), -1, true), paused)
+```
+
+And we pass as parameter a shared animation value which tells us if the animation is paused or not.
+
+Another example of composing animations we can look at is: 
+With pan-gesture example we can add the bouncing effect to our card if it reaches the edges, using just ```withBouncing``` function and pass the animation and boundaries as parameters.
+
+```js
+onEnd: (event, ctx) => {
+  translateX.value = withBouncing(withDecay({
+    velocity: event.velocityX,
+  }), 0, boundX);
+  translateY.value = withBouncing(withDecay({
+    velocity: event.velocityY,
+  }), 0, boundY);
+},
+```
+
+Now we can work on our ChatBubble example:
+```js
+const Timing = () => {
+    const [play, setPlay] = useState(false);
+    const progress = useSharedValue(null);
+    return (
+        <View style={style.container}>
+            <ChatBubble progress={progress} />
+            <Button title={play ? "Pause" : "Play"} onPress={() => {
+                setPlay((prev) => !prev);
+                if (progress.value === null) {
+                    progress.value = withRepeat(withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }), -1, true);
+                }
+            }
+            } />
+        </View>
+    )
+}
+export default Timing;
+```
+
+ChatBubble
+```js
+const ChatBubble = (progress) => {
+    const bubbles = [0, 1, 2];
+    const delta = 1 / bubbles.length;
+    return (
+        <View style={styles.root}>
+            <View style={styles.container}>
+                {bubbles.map((i) => {
+                    const start = i * delta;
+                    const end = start + delta;
+                    return <Bubble key={i} {...{ start, end, progress }} />
+                })}
+            </View>
+        </View>
+    )
+}
+export default ChatBubble
+```
+
+Bubble
+```js
+const Bubble = ({ progress, start, end }) => {
+    const style = useAnimatedStyle(() => {
+        const opacity = interpolate(
+            progress.value,
+            [start, end],
+            [0.5, 1],
+            Extrapolate.CLAMP
+        );
+        const scale = interpolate(
+            progress.value,
+            [start, end],
+            [1, 1.5],
+            Extrapolate.CLAMP
+        );
+        return { opacity, transform: [{ scale }] }
+    });
+    return <Animated.View style={[style, styles.bubble]} />;
+}
+export default Bubble;
+```
+
+Now we have chat bubble with indefinite loop, now we want the animation to be pausable, resumable. So we need a shared value to tell us that animation should be paused or not.
+It remembers the point where it was paused and also remembers the direction.

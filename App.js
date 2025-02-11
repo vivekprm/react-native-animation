@@ -1,11 +1,12 @@
 import { StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Transitions } from "./Transitions";
+import Timing from "./Animations";
 export default function App() {
   return (
     <View style={styles.container}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <Transitions />
+        <Timing />
       </GestureHandlerRootView>
     </View>
   );
