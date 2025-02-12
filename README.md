@@ -1223,3 +1223,447 @@ export const Label = ({ point }) => {
 };
 ```
 
+# Swiping
+We are going to use two very generic recipes that you can use in most of your code. What is this recipe: 
+
+It's simply to have a pan gesture handler when we start the gesture, we remember the position so we keep an offset value. When the gesture is active we translate the value so whatever is the value of pan gesture handler plus the offset value and when we release we decide on where to snap. 
+For this we use a function from react-native-redash which is super simple, it calculates where would be the position in 200ms depending the position and velocity and based on that it selects the closest point and that's where we are going to spring. 
+
+There is another recipe which is pretty generic, so we have this gesture which drives the animation but we can also execute the gesture imperatively by clicking a button. This is also a very common usecase. E.g. you can see this in spotify player.
+
+There are some specific thing that we might need to do only in this example:
+- Because we have this tinder card rotation when we move on x-axis, we need to calculate the minimum distance to swipe to the left or to the right where we hide the card.
+- We have spring configuration and nicely bounces the card but when we swipe to the left or to the right we execute a side effect, we say okay it's a like or a dislike. We want once the card is not visible to the user anymore we want to execute this side effect as soon as possible. We don't want to wait to have this small oscillation which gives a nice effect because we can't see the card anyways. So we are going to change the configuration of the spring depending on where we snap and namely where we are going to change two parameters which are the displacement threshold and the speed. So when do we decide that animation is over? So if we swipe to the left or to the right even if the speed of the translation is high we want the animation to stop since we can't see it anyways so we can execute the side effect as soon as possible.
+- We have scale animation, so if the card is swiped to the left or to the right card below gets closer. So it feels like you see a new card on the stack is appearing.
+
+**Swiping.js**
+```js
+import * as React from "react";
+
+import { Profiles } from "./Profiles";
+
+export const profiles = [
+  {
+    id: "1",
+    name: "Caroline",
+    age: 24,
+    profile: require("./assets/1.jpg"),
+  },
+  {
+    id: "2",
+    name: "Jack",
+    age: 30,
+    profile: require("./assets/2.jpg"),
+  },
+  {
+    id: "3",
+    name: "Anet",
+    age: 21,
+    profile: require("./assets/3.jpg"),
+  },
+  {
+    id: "4",
+    name: "John",
+    age: 28,
+    profile: require("./assets/4.jpg"),
+  },
+];
+
+export const Swiping = () => {
+  return <Profiles {...{ profiles }} />;
+};
+```
+
+**Profiles.js**
+```js
+import React, { useCallback, useState } from "react";
+import { SafeAreaView, StyleSheet, View } from "react-native";
+import { Feather as Icon } from "@expo/vector-icons";
+import { RectButton } from "react-native-gesture-handler";
+import { StyleGuide } from "./components/StyleGuide";
+import { Swipeable } from "./Swipable";
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: StyleGuide.palette.background,
+        justifyContent: "space-evenly",
+    },
+    header: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        padding: 16,
+    },
+    cards: {
+        flex: 1,
+        marginHorizontal: 16,
+        zIndex: 100,
+    },
+    footer: {
+        flexDirection: "row",
+        justifyContent: "space-evenly",
+        padding: 16,
+    },
+    circle: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        padding: 12,
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "white",
+        shadowColor: "gray",
+        shadowOffset: { width: 1, height: 1 },
+        shadowOpacity: 0.18,
+        shadowRadius: 2,
+    },
+});
+
+export const Profiles = ({ profiles: defaultProfiles }) => {
+    const [profiles, setProfiles] = useState(defaultProfiles);
+    const onSwipe = useCallback(() => {
+        setProfiles(profiles.slice(0, profiles.length - 1));
+    }, [profiles]);
+    return (
+        <SafeAreaView style={styles.container}>
+            <View style={styles.header}>
+                <Icon name="user" size={32} color="gray" />
+                <Icon name="message-circle" size={32} color="gray" />
+            </View>
+            <View style={styles.cards}>
+                {profiles.map((profile, index) => {
+                    const onTop = index === profiles.length - 1;
+                    return (
+                        <Swipeable
+                            key={profile.id}
+                            profile={profile}
+                            onSwipe={onSwipe}
+                            onTop={onTop}
+                        />
+                    );
+                })}
+            </View>
+            <View style={styles.footer}>
+                <RectButton style={styles.circle}>
+                    <Icon name="x" size={32} color="#ec5288" />
+                </RectButton>
+                <RectButton style={styles.circle}>
+                    <Icon name="heart" size={32} color="#6ee3b4" />
+                </RectButton>
+            </View>
+        </SafeAreaView>
+    );
+};
+```
+
+**Swipable.js**
+```js
+import { PanGestureHandler } from "react-native-gesture-handler";
+import { A, Profile } from "./Profile";
+import Animated, { runOnJS, useAnimatedGestureHandler, useSharedValue, withSpring } from "react-native-reanimated";
+import { StyleSheet } from "react-native";
+import { snapPoint } from "react-native-redash";
+
+const snapPoints = [-A, 0, A];
+
+export const Swipeable = ({ profile, onTop, onSwipe }) => {
+    const translateX = useSharedValue(0);
+    const translateY = useSharedValue(0);
+    const onGestureEvent = useAnimatedGestureHandler({
+        onStart: (_, ctx) => {
+            ctx.x = translateX.value;
+            ctx.y = translateY.value;
+        },
+        onActive: ({ translationX, translationY }, ctx) => {
+            translateX.value = translationX + ctx.x;
+            translateY.value = translationY + ctx.y;
+        },
+        onEnd: ({ velocityX, velocityY }) => {
+            // snapPoint calculates the closest point based on the velocity to snap
+            const dest = snapPoint(translateX.value, velocityX, snapPoints);
+            translateX.value = withSpring(dest, { velocity: velocityX }, () => {
+                if (dest !== 0) {
+                    // run the side-effect on JS thread
+                    runOnJS(onSwipe)();
+                }
+            });
+            translateY.value = withSpring(0, { velocity: velocityY });
+        }
+    })
+    return (
+        <PanGestureHandler {...{ onGestureEvent }}>
+            <Animated.View style={StyleSheet.absoluteFill}>
+                <Profile profile={profile} onTop={onTop} translateX={translateX} translateY={translateY} />
+            </Animated.View>
+        </PanGestureHandler>
+    );
+};
+```
+
+**Profile.js**
+```js
+import { Dimensions, Image, StyleSheet, Text, View } from "react-native";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
+
+const { width, height } = Dimensions.get("window");
+export const α = Math.PI / 12;
+export const A = Math.sin(α) * height + Math.cos(α) * width;
+const styles = StyleSheet.create({
+    image: {
+        ...StyleSheet.absoluteFillObject,
+        width: undefined,
+        height: undefined,
+        borderRadius: 8,
+    },
+    overlay: {
+        flex: 1,
+        justifyContent: "space-between",
+        padding: 16,
+    },
+    header: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+    },
+    footer: {
+        flexDirection: "row",
+    },
+    name: {
+        color: "white",
+        fontSize: 32,
+    },
+    like: {
+        borderWidth: 4,
+        borderRadius: 5,
+        padding: 8,
+        borderColor: "#6ee3b4",
+    },
+    likeLabel: {
+        fontSize: 32,
+        color: "#6ee3b4",
+        fontWeight: "bold",
+    },
+    nope: {
+        borderWidth: 4,
+        borderRadius: 5,
+        padding: 8,
+        borderColor: "#ec5288",
+    },
+    nopeLabel: {
+        fontSize: 32,
+        color: "#ec5288",
+        fontWeight: "bold",
+    },
+});
+
+export const Profile = ({ profile, translateX, translateY }) => {
+    const style = useAnimatedStyle(() => {
+        return {
+            transform: [{ translateX: translateX.value }, { translateY: translateY.value }],
+        };
+    });
+    return (
+        <Animated.View style={[StyleSheet.absoluteFill, style]}>
+            <Image style={styles.image} source={profile.profile} />
+            <View style={styles.overlay}>
+                <View style={styles.header}>
+                    <View style={[styles.like]}>
+                        <Text style={styles.likeLabel}>LIKE</Text>
+                    </View>
+                    <View style={[styles.nope]}>
+                        <Text style={styles.nopeLabel}>NOPE</Text>
+                    </View>
+                </View>
+                <View style={styles.footer}>
+                    <Text style={styles.name}>{profile.name}</Text>
+                </View>
+            </View>
+        </Animated.View>
+    );
+};
+```
+
+On issue is it took so much time for animation to be over and for this side effect to run. To fix that what we are going to do: if ```dest``` is not zero we are going to change the spring config so the animation finishes superfast and we're gonna tackle two parameters, first one is ```restSpeedThreshold``` and second one is ```restDisplacementThreshold```.
+
+```js
+onEnd: ({ velocityX, velocityY }) => {
+    // snapPoint calculates the closest point based on the velocity to snap
+    const dest = snapPoint(translateX.value, velocityX, snapPoints);
+    translateX.value = withSpring(dest, { velocity: velocityX, restSpeedThreshold: dest === 0 ? 0.01 : 100, restDisplacementThreshold: dest === 0 ? 0.01 : 100 }, () => {
+        if (dest !== 0) {
+            // run the side-effect on JS thread
+            runOnJS(onSwipe)();
+        }
+    });
+    translateY.value = withSpring(0, { velocity: velocityY });
+}
+```
+
+Now we are going to scale the background card. In ```Swipable.js``` we change the scale in the ```onActive``` handler and pass it as props to ```Profile.js```as below:
+```js
+export const Swipeable = ({ scale, profile, onTop, onSwipe }) => {
+    const translateX = useSharedValue(0);
+    const translateY = useSharedValue(0);
+    const onGestureEvent = useAnimatedGestureHandler({
+        onStart: (_, ctx) => {
+            ctx.x = translateX.value;
+            ctx.y = translateY.value;
+        },
+        onActive: ({ translationX, translationY }, ctx) => {
+            translateX.value = translationX + ctx.x;
+            translateY.value = translationY + ctx.y;
+            scale.value = interpolate(translateX.value, [-width / 2, 0, width / 2], [1, 0.95, 1], Extrapolation.CLAMP)
+        },
+        onEnd: ({ velocityX, velocityY }) => {
+            // snapPoint calculates the closest point based on the velocity to snap
+            const dest = snapPoint(translateX.value, velocityX, snapPoints);
+            translateX.value = withSpring(dest, { velocity: velocityX, restSpeedThreshold: dest === 0 ? 0.01 : 100, restDisplacementThreshold: dest === 0 ? 0.01 : 100 }, () => {
+                if (dest !== 0) {
+                    // run the side-effect on JS thread
+                    runOnJS(onSwipe)();
+                }
+            });
+            translateY.value = withSpring(0, { velocity: velocityY });
+        }
+    })
+    return (
+        <PanGestureHandler {...{ onGestureEvent }}>
+            <Animated.View style={StyleSheet.absoluteFill}>
+                <Profile profile={profile} onTop={onTop} translateX={translateX} translateY={translateY} scale={scale} />
+            </Animated.View>
+        </PanGestureHandler>
+    );
+};
+```
+
+And we transform the Profile with scale.
+
+**Profile.js**
+```js
+export const Profile = ({ scale, profile, translateX, translateY }) => {
+    const style = useAnimatedStyle(() => {
+        return {
+            transform: [
+                { translateX: translateX.value },
+                { translateY: translateY.value },
+                { rotate: interpolate(translateX.value, [-width / 2, 0, width / 2], [α, 0, -α], Extrapolation.CLAMP) + " deg" },
+                { scale: scale.value }
+            ],
+        };
+    });
+    const like = useAnimatedStyle(() => {
+        return {
+            opacity: interpolate(translateX.value, [0, width / 4], [0, 1], Extrapolation.CLAMP)
+        }
+    })
+    const nope = useAnimatedStyle(() => {
+        return {
+            opacity: interpolate(translateX.value, [-width / 4, 0], [1, 0], Extrapolation.CLAMP)
+        }
+    })
+    return (
+        <Animated.View style={[StyleSheet.absoluteFill, style]}>
+            <Image style={styles.image} source={profile.profile} />
+            <View style={styles.overlay}>
+                <View style={styles.header}>
+                    <Animated.View style={[styles.like, like]}>
+                        <Text style={styles.likeLabel}>LIKE</Text>
+                    </Animated.View>
+                    <Animated.View style={[styles.nope, nope]}>
+                        <Text style={styles.nopeLabel}>NOPE</Text>
+                    </Animated.View>
+                </View>
+                <View style={styles.footer}>
+                    <Text style={styles.name}>{profile.name}</Text>
+                </View>
+            </View>
+        </Animated.View>
+    );
+};
+```
+
+Now let's implement imperative command, below is the code from ```Swipable.js``` used for swipe right, lets refactor it and put it into another function:
+```js
+translateX.value = withSpring(dest, { velocity: velocityX, restSpeedThreshold: dest === 0 ? 0.01 : 100, restDisplacementThreshold: dest === 0 ? 0.01 : 100 }, () => {
+    if (dest !== 0) {
+        // run the side-effect on JS thread
+        runOnJS(onSwipe)();
+    }
+});
+```
+
+Will execute this function on hit of the button. Second thing that we need to do is to use hook ```useImperativeHandle``` where we can create methods that we can use from the outside. So you see how on the text input you can do ```.focus``` or ```.blur```. We also need to use ```forwardRef``` so we can assign the ref get it within the component.
+
+**Swipable.js**
+```js
+const swipe = (translateX, dest, velocityX, onSwipe) => {
+    "worklet";
+    translateX.value = withSpring(dest, { velocity: velocityX, restSpeedThreshold: dest === 0 ? 0.01 : 100, restDisplacementThreshold: dest === 0 ? 0.01 : 100 }, () => {
+        if (dest !== 0) {
+            // run the side-effect on JS thread
+            runOnJS(onSwipe)();
+        }
+    });
+}
+```
+
+We can also use ```useCallback``` and define it inside the component, so we don't need to pass that many parameters.
+
+Next thing we need to do is use **forwardRef** and access ref as props as below:
+```js
+const Swipeable = ({ scale, profile, onTop, onSwipe }, ref) => {
+  ....
+  useImperativeHandle(ref, () => ({
+        swipeLeft: () => {
+            swipe(translateX, -A, 25, onSwipe);
+        },
+        swipeRight: () => {
+            swipe(translateX, A, 25, onSwipe);
+        }
+    }))
+}
+export default forwardRef(Swipeable);
+```
+
+Now we invoke these methods from ```Profiles.js```.
+```js
+export const Profiles = ({ profiles: defaultProfiles }) => {
+    const topCard = useRef(null);
+    const scale = useSharedValue(1);
+    const [profiles, setProfiles] = useState(defaultProfiles);
+    const onSwipe = useCallback(() => {
+        setProfiles(profiles.slice(0, profiles.length - 1));
+    }, [profiles]);
+    return (
+        <SafeAreaView style={styles.container}>
+            <View style={styles.header}>
+                <Icon name="user" size={32} color="gray" />
+                <Icon name="message-circle" size={32} color="gray" />
+            </View>
+            <View style={styles.cards}>
+                {profiles.map((profile, index) => {
+                    const onTop = index === profiles.length - 1;
+                    const ref = onTop ? topCard : null;
+                    return (
+                        <Swipeable
+                            ref={ref}
+                            scale={scale}
+                            key={profile.id}
+                            profile={profile}
+                            onSwipe={onSwipe}
+                            onTop={onTop}
+                        />
+                    );
+                })}
+            </View>
+            <View style={styles.footer}>
+                <RectButton style={styles.circle} onPress={() => topCard.current?.swipeLeft()}>
+                    <Icon name="x" size={32} color="#ec5288" />
+                </RectButton>
+                <RectButton style={styles.circle} onPress={() => topCard.current?.swipeRight()}>
+                    <Icon name="heart" size={32} color="#6ee3b4" />
+                </RectButton>
+            </View>
+        </SafeAreaView>
+    );
+};
+```
