@@ -848,3 +848,165 @@ export const withPause = (animationParam, paused) => {
     })
 }
 ```
+
+# Circular Slider
+In order to build such cool user interaction, we are going to deploy two interesting recipes:
+- **Trigonometry** to be able to calculate the position of the cursor that you see, depending on the position of our finger.
+- **SVG Animation** to calculate the length of the arc of the circle that represents the progress.
+
+https://excalidraw.com
+
+The way we are going to build the cursor moving around is that we have a pan gesture handler. We move our finger around and we are going to get the polar coordinate of our finger (r, θ) and we are going to convert it into canvas coordinate system.
+
+**CircularSlider**
+```js
+import { Dimensions, PixelRatio, StyleSheet, View } from "react-native";
+import Animated, { interpolateColor, useDerivedValue, useSharedValue } from "react-native-reanimated";
+import { Cursor } from "./Cursor";
+import { CircularProgress } from "./CircularProgress";
+import { canvas2Polar } from "react-native-redash";
+import { StyleGuide } from "./components/StyleGuide";
+
+const { width } = Dimensions.get("window");
+const size = width - 32;
+const STROKE_WIDTH = 40;
+const r = PixelRatio.roundToNearestPixel(size / 2);
+const defaultTheta = canvas2Polar({ x: 0, y: 0 }, { x: r, y: r }).theta;
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    content: {
+        width: r * 2,
+        height: r * 2,
+    },
+});
+
+export const CircularSlider = () => {
+    const theta = useSharedValue(defaultTheta);
+    const backgroundColor = useDerivedValue(() => {
+        return interpolateColor(
+            theta.value,
+            [0, Math.PI, Math.PI * 2],
+            ["#ff3884", StyleGuide.palette.primary, "#38ffb3"]
+        );
+    });
+    return (
+        <View style={styles.container}>
+            <View style={styles.content}>
+                <Animated.View style={StyleSheet.absoluteFill}>
+                    <CircularProgress backgroundColor={backgroundColor} strokeWidth={STROKE_WIDTH} {...{ r }} {...{ theta }} />
+                </Animated.View>
+                <Cursor strokeWidth={STROKE_WIDTH} r={r - STROKE_WIDTH / 2} backgroundColor={backgroundColor} {...{ theta }} />
+            </View>
+        </View>
+    );
+};
+```
+
+**CircularProgress**
+```js
+import { StyleSheet } from "react-native";
+import Svg, { Circle } from "react-native-svg";
+import { StyleGuide } from "./components/StyleGuide";
+import Animated, { useAnimatedProps } from "react-native-reanimated";
+
+const { PI } = Math;
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+export const CircularProgress = ({ theta, r, strokeWidth, backgroundColor }) => {
+    const radius = r - strokeWidth / 2;
+    const circumference = radius * 2 * PI;
+    const props = useAnimatedProps(() => {
+        return {
+            stroke: backgroundColor.value,
+            strokeDashoffset: theta.value * radius,
+        }
+    })
+    return (
+        <Svg style={StyleSheet.absoluteFill}>
+            <Circle
+                cx={r}
+                cy={r}
+                fill="transparent"
+                stroke="white"
+                r={radius}
+                {...{ strokeWidth }}
+            />
+            <AnimatedCircle
+                animatedProps={props}
+                cx={r}
+                cy={r}
+                fill="transparent"
+                r={radius}
+                stroke={StyleGuide.palette.primary}
+                strokeDasharray={`${circumference}, ${circumference}`}
+                {...{ strokeWidth }}
+            />
+        </Svg>
+    );
+};
+```
+
+**Cursor.js**
+```js
+import * as React from "react";
+import { StyleSheet, View } from "react-native";
+
+import { PanGestureHandler } from "react-native-gesture-handler";
+import Animated, { clamp, useAnimatedGestureHandler, useAnimatedStyle } from "react-native-reanimated";
+import { canvas2Polar, polar2Canvas } from "react-native-redash";
+import { StyleGuide } from "./components/StyleGuide";
+
+export const Cursor = ({ r, strokeWidth, theta, backgroundColor }) => {
+    const center = { x: r, y: r };
+    const onGestureEvent = useAnimatedGestureHandler({
+        onStart: (event, ctx) => {
+            ctx.offset = polar2Canvas({ theta: theta.value, radius: r }, center);
+        },
+        onActive: (event, ctx) => {
+            const { translationX, translationY } = event;
+            const x = ctx.offset.x + translationX;
+            const y1 = ctx.offset.y + translationY;
+            const y = x < r ? y1 : (theta.value < Math.PI ? clamp(y1, 0, r - 0.001) : clamp(y1, r, 2 * r))
+            const value = canvas2Polar({ x, y }, center).theta;
+            theta.value = value > 0 ? value : 2 * Math.PI + value;
+            console.log({
+                before: value,
+                after: theta.value,
+            })
+        }
+    });
+    const style = useAnimatedStyle(() => {
+        const { translateX, translateY } = polar2Canvas({ theta: theta.value, radius: r }, center);
+        return {
+            backgroundColor: backgroundColor.value,
+            transform: [
+                { translateX },
+                { translateY }
+            ]
+        }
+    })
+    return (
+        <PanGestureHandler {...{ onGestureEvent }}>
+            <Animated.View
+                style={[
+                    {
+                        ...StyleSheet.absoluteFillObject,
+                        width: strokeWidth,
+                        height: strokeWidth,
+                        borderRadius: strokeWidth / 2,
+                        borderColor: "white",
+                        borderWidth: 5,
+                        backgroundColor: StyleGuide.palette.primary,
+                    },
+                    { style }
+                ]}
+            />
+        </PanGestureHandler>
+    );
+};
+```
