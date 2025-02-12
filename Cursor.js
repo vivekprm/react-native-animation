@@ -1,56 +1,55 @@
-import * as React from "react";
-import { StyleSheet, View } from "react-native";
+/* eslint-disable react-native/no-unused-styles */
 
+import { View, StyleSheet, Dimensions } from "react-native";
 import { PanGestureHandler } from "react-native-gesture-handler";
-import Animated, { clamp, useAnimatedGestureHandler, useAnimatedStyle } from "react-native-reanimated";
-import { canvas2Polar, polar2Canvas } from "react-native-redash";
-import { StyleGuide } from "./components/StyleGuide";
+import Animated, { Extrapolation, interpolate, useAnimatedGestureHandler, useAnimatedStyle, withDecay } from "react-native-reanimated";
 
-export const Cursor = ({ r, strokeWidth, theta, backgroundColor }) => {
-    const center = { x: r, y: r };
+const CURSOR = 100;
+const { width } = Dimensions.get("window");
+const styles = StyleSheet.create({
+    cursorContainer: {
+        width: CURSOR,
+        height: CURSOR,
+        justifyContent: "center",
+        alignItems: "center",
+        //backgroundColor: "rgba(100, 200, 300, 0.4)",
+    },
+    cursor: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        borderColor: "#367be2",
+        borderWidth: 4,
+        backgroundColor: "white",
+    },
+});
+
+export const Cursor = ({ path, length, point }) => {
     const onGestureEvent = useAnimatedGestureHandler({
         onStart: (event, ctx) => {
-            ctx.offset = polar2Canvas({ theta: theta.value, radius: r }, center);
+            ctx.offsetX = interpolate(length.value, [0, path.length], [0, width], Extrapolation.CLAMP)
         },
         onActive: (event, ctx) => {
-            const { translationX, translationY } = event;
-            const x = ctx.offset.x + translationX;
-            const y1 = ctx.offset.y + translationY;
-            const y = x < r ? y1 : (theta.value < Math.PI ? clamp(y1, 0, r - 0.001) : clamp(y1, r, 2 * r))
-            const value = canvas2Polar({ x, y }, center).theta;
-            theta.value = value > 0 ? value : 2 * Math.PI + value;
-            console.log({
-                before: value,
-                after: theta.value,
-            })
+            length.value = interpolate(ctx.offsetX + event.translationX, [0, width], [0, path.length], Extrapolation.CLAMP)
+        },
+        onEnd: ({ velocityX: velocity }) => {
+            length.value = withDecay({ velocity, clamp: [0, path.length] })
         }
     });
     const style = useAnimatedStyle(() => {
-        const { translateX, translateY } = polar2Canvas({ theta: theta.value, radius: r }, center);
+        const translateX = point.value.coord.x - CURSOR / 2;
+        const translateY = point.value.coord.y - CURSOR / 2;
         return {
-            backgroundColor: backgroundColor.value,
-            transform: [
-                { translateX },
-                { translateY }
-            ]
+            transform: [{ translateX }, { translateY }]
         }
-    })
+    });
     return (
-        <PanGestureHandler {...{ onGestureEvent }}>
-            <Animated.View
-                style={[
-                    {
-                        ...StyleSheet.absoluteFillObject,
-                        width: strokeWidth,
-                        height: strokeWidth,
-                        borderRadius: strokeWidth / 2,
-                        borderColor: "white",
-                        borderWidth: 5,
-                        backgroundColor: StyleGuide.palette.primary,
-                    },
-                    { style }
-                ]}
-            />
-        </PanGestureHandler>
+        <View style={StyleSheet.absoluteFill}>
+            <PanGestureHandler {...{ onGestureEvent }}>
+                <Animated.View style={[styles.cursorContainer, style]}>
+                    <View style={styles.cursor} />
+                </Animated.View>
+            </PanGestureHandler>
+        </View>
     );
 };

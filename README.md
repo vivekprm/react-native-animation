@@ -1010,3 +1010,216 @@ export const Cursor = ({ r, strokeWidth, theta, backgroundColor }) => {
     );
 };
 ```
+
+# Graph Interactions
+This is super exciting for 3 reasons:
+- Reanimated2 API is much simpler API because we can use JavaScript only on the UI thread. Here we are going to see that it's not only a better API, it's much more powerful API as well. Because in this case we will be formatting the JavaScript values on the UI thread. 
+  - That was not possible with **reanimated1**. In **reanimated1** to implement such an example, we had to cross the bridge everytime, basically the cursor was moving. So we had to use request animation frame, we had to use some throttling, we had to use set native props no trigger render while we update the values. And this was not very performant on low-end devices.  
+  - Here with **reanimated2** we are not crossing the bridge, everything is done on UI thread. So **reanimated2** is enabling new usecases, which were not possible to do before.
+- We have some code sharing between the **JavaScript Thread** and **UI Thread**. E.g. changing formatting or changing legend while moving the cursor. 
+- We are using **SVG Tuning**. We are using simple **Bezier tooling** and these are much more easier and robust to use with **reanimated2**.
+
+https://cubic-bezier.com/
+
+**Graph.js**
+```js
+import { View, Dimensions, StyleSheet } from "react-native";
+import Svg, { Path, Defs, Stop, LinearGradient } from "react-native-svg";
+import * as shape from "d3-shape";
+import { interpolate, Extrapolate, useSharedValue, useDerivedValue } from "react-native-reanimated";
+
+import { parsePath, getPointAtLength } from "./components/AnimatedHelpers";
+
+import { Cursor } from "./Cursor";
+import { Label } from "./Label";
+
+const { width } = Dimensions.get("window");
+const height = width;
+const data = [
+    { x: new Date(2020, 5, 1), y: 4371 },
+    { x: new Date(2020, 5, 2), y: 6198 },
+    { x: new Date(2020, 5, 3), y: 5310 },
+    { x: new Date(2020, 5, 4), y: 7188 },
+    { x: new Date(2020, 5, 5), y: 8677 },
+    { x: new Date(2020, 5, 6), y: 5012 },
+].map((p) => [p.x.getTime(), p.y]);
+
+const domain = {
+    x: [Math.min(...data.map(([x]) => x)), Math.max(...data.map(([x]) => x))],
+    y: [Math.min(...data.map(([, y]) => y)), Math.max(...data.map(([, y]) => y))],
+};
+
+const range = {
+    x: [0, width],
+    y: [height, 0],
+};
+
+const scale = (v, d, r) => {
+    "worklet";
+    return interpolate(v, d, r, Extrapolate.CLAMP);
+};
+
+const scaleInvert = (y, d, r) => {
+    "worklet";
+    return interpolate(y, r, d, Extrapolate.CLAMP);
+};
+
+const d = shape
+    .line()
+    .x(([x]) => scale(x, domain.x, range.x))
+    .y(([, y]) => scale(y, domain.y, range.y))
+    .curve(shape.curveBasis)(data);
+const path = parsePath(d);
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "white",
+    },
+});
+
+export const Graph = () => {
+    const length = useSharedValue(0);
+
+    const point = useDerivedValue(() => {
+        const coord = getPointAtLength(path, length.value);
+        return {
+            coord,
+            data: {
+                x: scaleInvert(coord.x, domain.x, range.x),
+                y: scaleInvert(coord.y, domain.y, range.y),
+            }
+        }
+    })
+    return (
+        <View style={styles.container}>
+            <Label {...{ data, point }} />
+            <View>
+                <Svg {...{ width, height }}>
+                    <Defs>
+                        <LinearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="gradient">
+                            <Stop stopColor="#CDE3F8" offset="0%" />
+                            <Stop stopColor="#eef6fd" offset="80%" />
+                            <Stop stopColor="#FEFFFF" offset="100%" />
+                        </LinearGradient>
+                    </Defs>
+                    <Path
+                        fill="transparent"
+                        stroke="#367be2"
+                        strokeWidth={5}
+                        {...{ d }}
+                    />
+                    <Path
+                        d={`${d}  L ${width} ${height} L 0 ${height}`}
+                        fill="url(#gradient)"
+                    />
+                </Svg>
+                <Cursor {...{ path, length, point }} />
+            </View>
+        </View>
+    );
+};
+```
+
+**Cursor.js**
+```js
+/* eslint-disable react-native/no-unused-styles */
+
+import { View, StyleSheet, Dimensions } from "react-native";
+import { PanGestureHandler } from "react-native-gesture-handler";
+import Animated, { Extrapolation, interpolate, useAnimatedGestureHandler, useAnimatedStyle, withDecay } from "react-native-reanimated";
+
+const CURSOR = 100;
+const { width } = Dimensions.get("window");
+const styles = StyleSheet.create({
+    cursorContainer: {
+        width: CURSOR,
+        height: CURSOR,
+        justifyContent: "center",
+        alignItems: "center",
+        //backgroundColor: "rgba(100, 200, 300, 0.4)",
+    },
+    cursor: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        borderColor: "#367be2",
+        borderWidth: 4,
+        backgroundColor: "white",
+    },
+});
+
+export const Cursor = ({ path, length, point }) => {
+    const onGestureEvent = useAnimatedGestureHandler({
+        onStart: (event, ctx) => {
+            ctx.offsetX = interpolate(length.value, [0, path.length], [0, width], Extrapolation.CLAMP)
+        },
+        onActive: (event, ctx) => {
+            length.value = interpolate(ctx.offsetX + event.translationX, [0, width], [0, path.length], Extrapolation.CLAMP)
+        },
+        onEnd: ({ velocityX: velocity }) => {
+            length.value = withDecay({ velocity, clamp: [0, path.length] })
+        }
+    });
+    const style = useAnimatedStyle(() => {
+        const translateX = point.value.coord.x - CURSOR / 2;
+        const translateY = point.value.coord.y - CURSOR / 2;
+        return {
+            transform: [{ translateX }, { translateY }]
+        }
+    });
+    return (
+        <View style={StyleSheet.absoluteFill}>
+            <PanGestureHandler {...{ onGestureEvent }}>
+                <Animated.View style={[styles.cursorContainer, style]}>
+                    <View style={styles.cursor} />
+                </Animated.View>
+            </PanGestureHandler>
+        </View>
+    );
+};
+```
+
+**Label.js**
+```js
+import { View, StyleSheet } from "react-native";
+import { StyleGuide } from "./components/StyleGuide";
+import { ReText } from "react-native-redash";
+import { useDerivedValue } from "react-native-reanimated";
+
+const styles = StyleSheet.create({
+    date: {
+        ...StyleGuide.typography.title3,
+        textAlign: "center",
+    },
+    price: {
+        ...StyleGuide.typography.title2,
+        textAlign: "center",
+    },
+});
+
+console.log({ styles });
+
+export const Label = ({ point }) => {
+    const date = useDerivedValue(() => {
+        return new Date(point.value.data.x).toLocaleDateString("en-US", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+        });
+    })
+    const price = useDerivedValue(() => {
+        return `$ ${Math.round(point.value.data.y, 2).toLocaleString("en-US", { currency: "USD" })}`
+    })
+    return (
+        <View>
+            <ReText style={styles.date} text={date} />
+            <ReText style={styles.price} text={price} />
+        </View>
+    );
+};
+```
+

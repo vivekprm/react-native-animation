@@ -1,11 +1,11 @@
 import { StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { CircularSlider } from "./CircularSlider";
+import { Graph } from "./Graph";
 export default function App() {
   return (
     <View style={styles.container}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <CircularSlider />
+        <Graph />
       </GestureHandlerRootView>
     </View>
   );
